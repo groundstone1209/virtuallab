@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IASA 익명 게시판 Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Firebase SDK (Compat Version) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;700&display=swap');
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f1f5f9; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .post-card { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .active-tab { border-bottom: 3px solid #4f46e5; color: #4f46e5; font-weight: 700; }
+        .modal-bg { backdrop-filter: blur(4px); }
+    </style>
+</head>
+<body>
+
+    <!-- [1] 로그인/회원가입 화면 -->
+    <div id="authContainer" class="fixed inset-0 z-[200] bg-indigo-900 flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-md">
+            <div id="loginBox">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2 text-center">IASA 익명 광장</h2>
+                <p class="text-sm text-gray-400 text-center mb-8">아이디와 비밀번호로 로그인하세요.</p>
+                <input id="loginId" type="text" placeholder="아이디" class="w-full p-4 bg-gray-50 rounded-2xl mb-3 outline-none focus:ring-2 focus:ring-indigo-500">
+                <input id="loginPw" type="password" placeholder="비밀번호" class="w-full p-4 bg-gray-50 rounded-2xl mb-6 outline-none focus:ring-2 focus:ring-indigo-500">
+                <button onclick="auth.login()" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition mb-4 shadow-lg">로그인</button>
+                <p class="text-xs text-center text-gray-400">계정이 없으신가요? <button onclick="auth.toggle()" class="text-indigo-600 font-bold underline">회원가입</button></p>
+            </div>
+            <div id="signupBox" class="hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2 text-center">신규 회원가입</h2>
+                <p class="text-sm text-gray-400 text-center mb-8">안전한 이용을 위해 정보를 입력하세요.</p>
+                <input id="signId" type="text" placeholder="사용할 아이디" class="w-full p-4 bg-gray-50 rounded-2xl mb-3 outline-none focus:ring-2 focus:ring-green-500">
+                <input id="signPw" type="password" placeholder="비밀번호" class="w-full p-4 bg-gray-50 rounded-2xl mb-3 outline-none focus:ring-2 focus:ring-green-500">
+                <select id="signGrade" class="w-full p-4 bg-gray-50 rounded-2xl mb-6 outline-none">
+                    <option value="9기">9기</option><option value="10기">10기</option><option value="11기">11기</option>
+                </select>
+                <button onclick="auth.signup()" class="w-full py-4 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition mb-4 shadow-lg">가입하기</button>
+                <button onclick="auth.toggle()" class="w-full text-xs text-gray-400 font-bold underline text-center">로그인으로 돌아가기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [2] 상단 네비게이션 -->
+    <nav class="bg-white/90 backdrop-blur-md border-b sticky top-0 z-50 px-4">
+        <div class="container mx-auto flex flex-col md:flex-row justify-between items-center py-3 gap-3">
+            <div class="flex items-center justify-between w-full md:w-auto gap-4">
+                <h1 onclick="location.reload()" class="text-xl font-black text-indigo-600 cursor-pointer tracking-tighter italic">IASA <span class="text-gray-400 font-normal">SQUARE</span></h1>
+                <span id="userProfile" class="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full md:hidden"></span>
+            </div>
+            
+            <!-- 검색바 -->
+            <div class="relative w-full max-w-md">
+                <input id="searchInput" type="text" onkeyup="app.search()" placeholder="보고 싶은 글 제목을 검색하세요..." class="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all">
+                <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-gray-400 text-xs"></i>
+            </div>
+
+            <div class="hidden md:flex items-center gap-3">
+                <span id="userProfilePC" class="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full"></span>
+                <button onclick="app.openModal('write')" class="bg-indigo-600 text-white px-6 py-2 rounded-xl font-bold text-sm shadow-indigo-200 shadow-lg hover:bg-indigo-700 transition">글쓰기</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- [3] 카테고리 필터 -->
+    <div class="bg-white border-b sticky top-[116px] md:top-[73px] z-40">
+        <div class="container mx-auto px-4 overflow-x-auto no-scrollbar py-2 flex justify-center gap-6 text-sm text-gray-500 font-medium">
+            <button onclick="app.setFilter('전체')" class="category-tab active-tab pb-1 whitespace-nowrap">전체</button>
+            <button onclick="app.setFilter('학업')" class="category-tab pb-1 whitespace-nowrap">📚 학업</button>
+            <button onclick="app.setFilter('생활')" class="category-tab pb-1 whitespace-nowrap">🏠 생활</button>
+            <button onclick="app.setFilter('시설')" class="category-tab pb-1 whitespace-nowrap">🏫 시설</button>
+            <button onclick="app.setFilter('기타')" class="category-tab pb-1 whitespace-nowrap">💬 기타</button>
+        </div>
+    </div>
+
+    <!-- [4] 메인 콘텐츠 -->
+    <main class="container mx-auto mt-6 px-4 max-w-2xl pb-24">
+        <div id="postList" class="space-y-4"></div>
+    </main>
+
+    <!-- [5] 모바일 글쓰기 버튼 -->
+    <button onclick="app.openModal('write')" class="md:hidden fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl z-50 flex items-center justify-center text-xl">
+        <i class="fa-solid fa-pen"></i>
+    </button>
+
+    <!-- [6] 글쓰기 모달 -->
+    <div id="writeModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center p-4 z-[100] modal-bg">
+        <div class="bg-white rounded-[2.5rem] w-full max-w-lg p-8 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-gray-800">새로운 글 작성</h2>
+                <button onclick="app.closeModal('write')" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-2xl"></i></button>
+            </div>
+            <div class="space-y-4">
+                <div class="grid grid-cols-3 gap-2 text-xs font-bold">
+                    <select id="pGrade" class="p-4 bg-gray-50 rounded-2xl outline-none border-none">
+                        <option value="9기">9기</option><option value="10기">10기</option><option value="11기">11기</option>
+                    </select>
+                    <select id="pCategory" class="p-4 bg-gray-50 rounded-2xl outline-none border-none">
+                        <option value="학업">📚 학업</option><option value="생활">🏠 생활</option><option value="시설">🏫 시설</option><option value="기타">💬 기타</option>
+                    </select>
+                    <select id="pVisibility" class="p-4 bg-gray-50 rounded-2xl outline-none border-none">
+                        <option value="public">🌍 공개</option><option value="private">🔒 비공개</option>
+                    </select>
+                </div>
+                <input id="pTitle" type="text" placeholder="제목" class="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 border-none">
+                <textarea id="pContent" placeholder="여기에 내용을 입력하세요..." rows="6" class="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 border-none"></textarea>
+                
+                <div class="flex items-center justify-between p-4 bg-indigo-50 rounded-2xl">
+                    <div class="flex items-center gap-2">
+                        <label class="cursor-pointer bg-white px-4 py-2 rounded-xl text-[10px] font-bold shadow-sm">
+                            <i class="fa-solid fa-image mr-1"></i> 파일/이미지
+                            <input type="file" id="pFile" class="hidden" accept=".jpg,.png,.pdf">
+                        </label>
+                        <span id="fileName" class="text-[10px] text-indigo-400 truncate max-w-[100px]"></span>
+                    </div>
+                    <input id="pPassword" type="password" maxlength="4" placeholder="삭제비번(4자리)" class="bg-transparent text-right outline-none text-xs font-bold w-24">
+                </div>
+
+                <button id="submitBtn" onclick="app.submitPost()" class="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg shadow-lg hover:bg-indigo-700 transition">게시하기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. Firebase 설정 ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAEZfvqAOOI0n9zCScsXQvuYEC2n3Xvw7k",
+            authDomain: "iasa-website-2a168.firebaseapp.com",
+            projectId: "iasa-website-2a168",
+            storageBucket: "iasa-website-2a168.firebasestorage.app",
+            messagingSenderId: "769584122128",
+            appId: "1:769584122128:web:45b71a6d103033d254fd95"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // --- 2. 금지어 및 AI 필터링 설정 ---
+        // (현실적으로 API 키 노출 방지를 위해 로컬 필터링 로직을 강화함)
+        const bannedWords = ["욕설1", "비속어2", "특정인물3", "선정단어4"]; 
+
+        // --- 3. 회원 인증 (Auth) 객체 ---
+        const auth = {
+            toggle() {
+                document.getElementById('loginBox').classList.toggle('hidden');
+                document.getElementById('signupBox').classList.toggle('hidden');
+            },
+            async signup() {
+                const id = document.getElementById('signId').value.trim();
+                const pw = document.getElementById('signPw').value.trim();
+                const grade = document.getElementById('signGrade').value;
+                if(!id || !pw) return alert("아이디와 비밀번호를 입력하세요.");
+                
+                const userDoc = await db.collection("users").doc(id).get();
+                if(userDoc.exists) return alert("이미 존재하는 아이디입니다.");
+
+                await db.collection("users").doc(id).set({ pw, grade });
+                alert("회원가입 성공! 로그인해주세요.");
+                this.toggle();
+            },
+            async login() {
+                const id = document.getElementById('loginId').value.trim();
+                const pw = document.getElementById('loginPw').value.trim();
+                const userDoc = await db.collection("users").doc(id).get();
+
+                if(userDoc.exists && userDoc.data().pw === pw) {
+                    const userData = { id, grade: userDoc.data().grade, nick: app.generateNick() };
+                    sessionStorage.setItem('user', JSON.stringify(userData));
+                    location.reload();
+                } else {
+                    alert("정보가 일치하지 않습니다.");
+                }
+            }
+        };
+
+        // --- 4. 메인 앱 (App) 객체 ---
+        const app = {
+            user: JSON.parse(sessionStorage.getItem('user')),
+            posts: [],
+            filter: '전체',
+
+            init() {
+                if(this.user) {
+                    document.getElementById('authContainer').classList.add('hidden');
+                    const profileStr = `${this.user.grade} | ${this.user.nick}`;
+                    document.getElementById('userProfile').innerText = profileStr;
+                    document.getElementById('userProfilePC').innerText = profileStr;
+                    this.loadPosts();
+                }
+                document.getElementById('pFile').onchange = (e) => {
+                    document.getElementById('fileName').innerText = e.target.files[0]?.name || "";
+                };
+            },
+
+            generateNick() {
+                const adjs = ["슬기로운", "창의적인", "열정적인", "날카로운", "빛나는", "차분한", "용감한", "미려한", "거대한", "빠른", "고요한", "치밀한"];
+                const nouns = ["원소", "아이작", "뉴턴", "입자", "프랙탈", "뉴런", "미분", "적분", "전자", "광자", "가우스", "테슬라", "피펫", "시약"];
+                return adjs[Math.floor(Math.random() * adjs.length)] + " " + nouns[Math.floor(Math.random() * nouns.length)];
+            },
+
+            loadPosts() {
+                db.collection("posts").orderBy("createdAt", "desc").onSnapshot(s => {
+                    this.posts = s.docs.map(d => ({ id: d.id, ...d.data() }));
+                    this.render();
+                });
+            },
+
+            setFilter(f) {
+                this.filter = f;
+                document.querySelectorAll('.category-tab').forEach(t => {
+                    t.classList.toggle('active-tab', t.innerText.includes(f));
+                });
+                this.render();
+            },
+
+            search() { this.render(); },
+
+            async submitPost() {
+                const title = document.getElementById('pTitle').value.trim();
+                const content = document.getElementById('pContent').value.trim();
+                const category = document.getElementById('pCategory').value;
+                const grade = document.getElementById('pGrade').value;
+                const visibility = document.getElementById('pVisibility').value;
+                const pw = document.getElementById('pPassword').value;
+
+                if(!title || !content || pw.length < 4) return alert("내용을 채우고 비밀번호 4자리를 입력하세요.");
+
+                // AI 기반 필터링 시뮬레이션 (금지어 체크)
+                const isBad = bannedWords.some(word => title.includes(word) || content.includes(word));
+                if(isBad) return alert("🚨 AI 필터링: 부적절한 표현이 감지되어 게시할 수 없습니다.");
+
+                const btn = document.getElementById('submitBtn');
+                btn.disabled = true; btn.innerText = "게시 중...";
+
+                await db.collection("posts").add({
+                    title, content, category, grade, visibility, pw,
+                    authorId: this.user.id,
+                    authorNick: this.user.nick,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    date: new Date().toLocaleDateString(),
+                    votes: 0,
+                    comments: []
+                });
+
+                this.closeModal('write');
+                btn.disabled = false; btn.innerText = "게시하기";
+            },
+
+            async upvote(id) {
+                await db.collection("posts").doc(id).update({ votes: firebase.firestore.FieldValue.increment(1) });
+            },
+
+            async deletePost(id, correctPw) {
+                const inputPw = prompt("비밀번호 4자리를 입력하세요.");
+                if(inputPw === correctPw) {
+                    await db.collection("posts").doc(id).delete();
+                } else {
+                    alert("비밀번호가 틀립니다.");
+                }
+            },
+
+            async addComment(id) {
+                const input = document.getElementById(`comment-${id}`);
+                if(!input.value.trim()) return;
+                const post = this.posts.find(p => p.id === id);
+                const newComments = [...(post.comments || []), { author: this.user.nick, text: input.value }];
+                await db.collection("posts").doc(id).update({ comments: newComments });
+                input.value = '';
+            },
+
+            openModal(id) { document.getElementById(`${id}Modal`).classList.remove('hidden'); },
+            closeModal(id) { document.getElementById(`${id}Modal`).classList.add('hidden'); },
+
+            render() {
+                const container = document.getElementById('postList');
+                const searchQuery = document.getElementById('searchInput').value.toLowerCase();
+                container.innerHTML = '';
+
+                const filtered = this.posts.filter(p => {
+                    const catMatch = this.filter === '전체' || p.category === this.filter;
+                    const searchMatch = p.title.toLowerCase().includes(searchQuery);
+                    const visMatch = p.visibility === 'public' || p.authorId === this.user.id;
+                    return catMatch && searchMatch && visMatch;
+                });
+
+                if(filtered.length === 0) {
+                    container.innerHTML = `<div class="text-center py-20 text-gray-300 font-bold">검색 결과가 없거나 글이 없습니다.</div>`;
+                    return;
+                }
+
+                filtered.forEach(post => {
+                    const isMyPost = post.authorId === this.user.id;
+                    const card = document.createElement('div');
+                    card.className = `post-card p-6 rounded-[2rem] shadow-sm border ${post.visibility === 'private' ? 'bg-indigo-50 border-indigo-100' : 'bg-white border-gray-100'}`;
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex gap-2">
+                                <span class="px-3 py-1 bg-indigo-100 text-indigo-600 rounded-full text-[10px] font-bold">${post.grade}</span>
+                                <span class="px-3 py-1 bg-gray-100 text-gray-500 rounded-full text-[10px] font-bold">${post.category}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-[10px] text-gray-400">
+                                <span>${post.date}</span>
+                                ${isMyPost ? `<button onclick="app.deletePost('${post.id}', '${post.pw}')" class="text-red-400 font-bold">삭제</button>` : ''}
+                            </div>
+                        </div>
+                        <h3 class="text-lg font-bold text-gray-800 mb-2">${post.title}</h3>
+                        <p class="text-sm text-gray-600 mb-6 leading-relaxed whitespace-pre-wrap">${post.content}</p>
+                        
+                        <div class="flex items-center justify-between mb-6">
+                            <button onclick="app.upvote('${post.id}')" class="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-2xl text-xs font-bold shadow-lg hover:scale-105 transition">
+                                <i class="fa-solid fa-thumbs-up"></i> 동의 ${post.votes || 0}
+                            </button>
+                            <span class="text-[10px] text-gray-400 font-medium">By ${post.authorNick}</span>
+                        </div>
+
+                        <div class="border-t border-gray-50 pt-4">
+                            <div class="space-y-2 mb-4">
+                                ${(post.comments || []).map(c => `
+                                    <div class="text-[11px] bg-gray-50 p-3 rounded-2xl">
+                                        <span class="font-bold text-indigo-500">${c.author}</span> <span class="text-gray-600 ml-1">${c.text}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="flex gap-2">
+                                <input id="comment-${post.id}" type="text" placeholder="댓글 달기..." class="flex-1 text-xs p-3 bg-gray-50 rounded-2xl outline-none border-none focus:ring-1 focus:ring-indigo-200">
+                                <button onclick="app.addComment('${post.id}')" class="text-xs font-bold text-indigo-600 px-4">등록</button>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+            }
+        };
+
+        app.init();
+    </script>
+</body>
+</html>
